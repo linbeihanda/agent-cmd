@@ -83,7 +83,7 @@ def load_env_vars():
     env_vars = {}
     # Look for .env in the project root directory (agent-cmd/../)
     script_dir = Path(__file__).parent.parent
-    env_file = script_dir.parent / '.env.agent-cmd'
+    env_file = script_dir.parent / '.env'
 
     if env_file.exists():
         with open(env_file, 'r', encoding='utf-8') as f:

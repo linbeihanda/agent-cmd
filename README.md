@@ -10,6 +10,13 @@
     ```bash
     specify init project-name
     cd project-name
+
+    claude --dangerously-skip-permissions
+
+    # 进入 Claude Code 后先把 constitution 这一步做了
+    /speckit.constitution [你的constitution内容]
+
+    然后连按2次 ctrl+C 退出 Claude Code
     ```
 
 3. **下载本项目**：将本项目下载到该目录中
