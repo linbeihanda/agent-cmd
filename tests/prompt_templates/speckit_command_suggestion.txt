@@ -1,0 +1,13 @@
+Based on the following Claude Code response, suggest the most appropriate next spec-kit command to continue the development workflow:
+
+Claude Code Response:
+{claude_response}
+
+Analyze the response and suggest one of these spec-kit commands:
+- /speckit.specify - if the response contains new feature requirements or needs clarification
+- /speckit.plan - if the response is ready for implementation planning
+- /speckit.tasks - if the planning is complete and task generation is needed
+- /speckit.implement - if tasks are ready for execution
+- /speckit.clarify - if the response has ambiguities that need resolution
+
+Respond with only the command, no explanation.

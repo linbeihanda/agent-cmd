@@ -1,0 +1,1 @@
+ 遵循 TDD(测试驱动开发）最佳实践，先写测试，再实现业务代码；保证每个任务都有对应的单元测试， 保证每个 User Story 都有对应的集成测试。项目使用流行的，轻量的 react 框架进行前端开发，后端使用 python 3.12.0 版本，虚拟环境使用 pyenv virtualenv 来管理，虚拟环境名称：venv-XXXXX，使用 pyenv activate venv-XXXXX 进入虚拟环境。

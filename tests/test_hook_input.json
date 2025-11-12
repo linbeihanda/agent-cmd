@@ -1,0 +1,5 @@
+{
+  "transcript_path": "/Users/juvo/Documents/handalin/projects/agent-cmd/agent-cmd/tests/test_transcript.jsonl",
+  "session_id": "test-session-123",
+  "event_type": "tool_call"
+}
