@@ -17,7 +17,7 @@ from pathlib import Path
 
 def print_log(log_entry):
     # Prepare log directory and file (relative to script location)
-    script_dir = Path(__file__).parent.parent.parent # business project folder
+    script_dir = Path(__file__).parent.parent # business project folder
     log_dir = script_dir / "log"
     log_file = log_dir / "hook_content.log"
 
@@ -71,7 +71,7 @@ def extract_session_id(json_data):
 
 def get_session_counter_path(session_id):
     """Get the counter file path for a given session ID."""
-    script_dir = Path(__file__).parent.parent.parent
+    script_dir = Path(__file__).parent.parent
     log_dir = script_dir / "log"
     session_counters_dir = log_dir / "session_counters"
     session_counters_dir.mkdir(exist_ok=True)
@@ -83,7 +83,7 @@ def load_env_vars():
     env_vars = {}
     # Look for .env in the project root directory (agent-cmd/../)
     script_dir = Path(__file__).parent.parent
-    env_file = script_dir.parent / '.env'
+    env_file = script_dir / '.env'
 
     if env_file.exists():
         with open(env_file, 'r', encoding='utf-8') as f:
@@ -217,7 +217,7 @@ def send_prompt_to_llm(prompt, config):
 
 def log_llm_request_response(prompt, config, response_data=None, error_info=None):
     """Log LLM request metadata, prompt, and response to hook_content.log."""
-    script_dir = Path(__file__).parent.parent.parent
+    script_dir = Path(__file__).parent.parent
     log_dir = script_dir / "log"
     log_file = log_dir / "hook_content.log"
 
@@ -382,7 +382,7 @@ def main():
 
 
         # Ensure log directory exists
-        script_dir = Path(__file__).parent.parent.parent
+        script_dir = Path(__file__).parent.parent
         log_dir = script_dir / "log"
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / "hook_content.log"
