@@ -12,6 +12,7 @@ import os
 import subprocess
 import time
 import requests
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -142,6 +143,204 @@ def check_and_increment_session_counter(session_id):
 
     print_log(f"Session {session_id} trigger count: {new_count}/{max_triggers}")
     return True
+
+
+def is_user_message(jsonl_data):
+    """Check if the JSONL data represents a genuine user message (not tool results or summaries)."""
+    if isinstance(jsonl_data, dict):
+        # First, check if this has toolUseResult field - that indicates it's a tool result
+        if 'toolUseResult' in jsonl_data:
+            return False
+
+        # Check for session summary markers - these are not genuine user messages
+        if jsonl_data.get('isCompactSummary', False):
+            return False
+        if jsonl_data.get('isVisibleInTranscriptOnly', False):
+            return False
+        if jsonl_data.get('isMeta', False):
+            return False
+
+        # Check type field
+        if jsonl_data.get('type') == 'user':
+            # Check if this looks like a tool result (has tool_use_id and only tool_result content)
+            content = jsonl_data.get('content', [])
+            if isinstance(content, list) and len(content) > 0:
+                # If all items in content are tool_result type AND there's a tool_use_id,
+                # this is likely a tool result disguised as user message
+                if all(isinstance(item, dict) and item.get('type') == 'tool_result' for item in content):
+                    # Also check for tool_use_id field which indicates this is a tool result
+                    if 'tool_use_id' in jsonl_data:
+                        return False
+            # If content doesn't look like tool results, or if there's no tool_use_id, treat as genuine user message
+            return True
+
+        # Check message field with role
+        if 'message' in jsonl_data:
+            message = jsonl_data['message']
+            if isinstance(message, dict) and message.get('role') == 'user':
+                # Check if this looks like a tool result
+                message_content = message.get('content', '')
+                if isinstance(message_content, list):
+                    # If all items are tool_results AND there's a tool_use_id in the record,
+                    # this is likely a tool result
+                    if all(isinstance(item, dict) and item.get('type') == 'tool_result' for item in message_content):
+                        if 'tool_use_id' in jsonl_data:
+                            return False
+                # Check for tool_result text pattern and tool_use_id
+                if isinstance(message_content, str) and 'tool_use_id' in str(jsonl_data):
+                    if 'tool_result' in str(jsonl_data):
+                        return False
+                return True
+
+    return False
+
+
+def extract_user_prompt_content(content):
+    """Extract user prompt content from message content."""
+    if not content:
+        return None
+
+    # Handle string content
+    if isinstance(content, str):
+        if '<command-name>' in content and '<command-args>' in content:
+            # Parse XML-like command content
+            cmd_match = re.search(r'<command-name>(.*?)</command-name>', content)
+            args_match = re.search(r'<command-args>(.*?)</command-args>', content, re.DOTALL)
+
+            if cmd_match:
+                cmd_name = cmd_match.group(1).strip()
+                cmd_args = args_match.group(1).strip() if args_match else ''
+
+                # Return the full command
+                if cmd_args:
+                    return f"{cmd_name} {cmd_args}"
+                else:
+                    return cmd_name
+        else:
+            # Return regular text content as-is
+            return content.strip()
+
+    # Handle array content (like in the example)
+    elif isinstance(content, list):
+        # For array content, extract text from array items
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict):
+                if 'text' in item:
+                    text = item['text']
+                    if '<command-name>' in text and '<command-args>' in text:
+                        cmd_match = re.search(r'<command-name>(.*?)</command-name>', text)
+                        args_match = re.search(r'<command-args>(.*?)</command-args>', text, re.DOTALL)
+
+                        if cmd_match:
+                            cmd_name = cmd_match.group(1).strip()
+                            cmd_args = args_match.group(1).strip() if args_match else ''
+
+                            # Return the full command
+                            if cmd_args:
+                                return f"{cmd_name} {cmd_args}"
+                            else:
+                                return cmd_name
+                    else:
+                        # Collect regular text
+                        text_parts.append(item['text'])
+                elif 'content' in item:
+                    text_parts.append(item['content'])
+
+        # If no command found in array, return concatenated text
+        if text_parts:
+            return ' '.join(str(part) for part in text_parts).strip()
+
+    return None
+
+
+def extract_last_user_prompt_from_jsonl_file(transcript_path):
+    """Extract the last user prompt from a JSONL transcript file.
+
+    Args:
+        transcript_path: Path to the JSONL transcript file
+
+    Returns:
+        tuple: (last_user_prompt: str, line_number: int) or (None, None) if not found
+    """
+    try:
+        transcript_path = Path(transcript_path)
+        if not transcript_path.exists():
+            raise FileNotFoundError(f"Transcript path does not exist: {transcript_path}")
+
+        # Read JSONL file and search from bottom to top for the last user prompt
+        with open(transcript_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        if not lines:
+            return None, None
+
+        # Search from bottom to top to find the last user prompt
+        for line_num in range(len(lines), 0, -1):
+            i = line_num - 1
+            line = lines[i].strip()
+            if line:
+                try:
+                    json_line = json.loads(line)
+                    prompt = extract_last_user_prompt(json_line)
+                    if prompt:
+                        return prompt, line_num
+                except json.JSONDecodeError:
+                    continue
+
+        return None, None
+
+    except Exception as e:
+        print_log(f"Error extracting user prompt from JSONL file: {e}")
+        return None, None
+
+
+def extract_last_user_prompt(jsonl_data):
+    """Extract the last user prompt from JSONL data."""
+    # First check if this is a user message
+    if not is_user_message(jsonl_data):
+        return None
+
+    # Extract content from the message
+    content = None
+
+    # Try different ways to get the content
+    if 'message' in jsonl_data:
+        message = jsonl_data['message']
+        if isinstance(message, dict):
+            content = message.get('content', '')
+    elif 'content' in jsonl_data:
+        content = jsonl_data['content']
+
+    # Extract user prompt content (could be command or regular text)
+    return extract_user_prompt_content(content)
+
+
+def should_process_hook(last_user_prompt):
+    """Check if the hook should be processed based on the last user prompt."""
+    if not last_user_prompt:
+        return False, "No user prompt found"
+
+    # First extract the command from XML format if present
+    actual_command = last_user_prompt.strip()
+    if '<command-name>' in last_user_prompt:
+        cmd_match = re.search(r'<command-name>(.*?)</command-name>', last_user_prompt)
+        if cmd_match:
+            actual_command = cmd_match.group(1).strip()
+        else:
+            actual_command = last_user_prompt.strip()
+    else:
+        actual_command = last_user_prompt.strip()
+
+    # Check if it starts with /speckit.
+    if not actual_command.startswith('/speckit.'):
+        return False, f"Not a speckit command: {actual_command}"
+
+    # Check if it's /speckit.constitution (which should be skipped)
+    if actual_command.startswith('/speckit.constitution'):
+        return False, f"Skipping /speckit.constitution command"
+
+    return True, "Valid speckit command"
 
 
 def extract_claude_response(json_data):
@@ -396,11 +595,12 @@ def main():
         claude_response = None
         json2 = None
         session_id = None
+        last_user_prompt = None
 
         if transcript_path:
             transcript_path = Path(transcript_path)
             if transcript_path.exists():
-                # Read JSONL file and get last line
+                # Get the last line for Claude response and session ID
                 with open(transcript_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     if lines:
@@ -409,12 +609,67 @@ def main():
                             json2 = json.loads(last_line)
                             claude_response = extract_claude_response(json2)
                             session_id = extract_session_id(json2)
+
+                # Extract the last user prompt using the independent function
+                last_user_prompt, user_line = extract_last_user_prompt_from_jsonl_file(transcript_path)
+
+                # Check if we should process this hook based on the user prompt
+                should_process, reason = should_process_hook(last_user_prompt)
+
+                if not should_process:
+                    print_log(f"Skipping hook processing: {reason}")
+
+                    # Prepare basic log entry for skipped hooks
+                    log_entry = f"""
+{separator}
+Timestamp: {timestamp}
+Event Type: {hook_event}
+Content Length: {len(hook_content)} characters
+
+--- JSON1 (Hook Content) ---
+{json.dumps(json1, indent=2, ensure_ascii=False)}
+--- End JSON1 ---
+
+--- Last User Prompt ---
+{last_user_prompt if last_user_prompt else 'No user prompt found in transcript'}
+--- End Last User Prompt ---
+
+--- Hook Processing Status ---
+SKIPPED: {reason}
+--- End Hook Processing Status ---
+"""
+                    with open(log_file, 'a', encoding='utf-8') as f:
+                        f.write(log_entry)
+                    print_log(f"Hook content logged to {log_file}")
+                    return  # Exit early, don't process further
             else:
                 raise FileNotFoundError(f"Transcript path does not exist: {transcript_path}")
         else:
             print_log("Warning: No transcript_path found in hook content")
+            # If no transcript_path, we can't check user prompt, so skip processing
+            print_log("Skipping hook processing: No transcript path available")
 
-        # Prepare log entry with formatted JSON outputs
+            # Prepare basic log entry for skipped hooks
+            log_entry = f"""
+{separator}
+Timestamp: {timestamp}
+Event Type: {hook_event}
+Content Length: {len(hook_content)} characters
+
+--- JSON1 (Hook Content) ---
+{json.dumps(json1, indent=2, ensure_ascii=False)}
+--- End JSON1 ---
+
+--- Hook Processing Status ---
+SKIPPED: No transcript path available
+--- End Hook Processing Status ---
+"""
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+            print_log(f"Hook content logged to {log_file}")
+            return  # Exit early
+
+        # Prepare log entry with formatted JSON outputs for processed hooks
         log_entry = f"""
 {separator}
 Timestamp: {timestamp}
@@ -424,6 +679,14 @@ Content Length: {len(hook_content)} characters
 --- JSON1 (Hook Content) ---
 {json.dumps(json1, indent=2, ensure_ascii=False)}
 --- End JSON1 ---
+
+--- Last User Prompt ---
+{last_user_prompt if last_user_prompt else 'No user prompt found in transcript'}
+--- End Last User Prompt ---
+
+--- Hook Processing Status ---
+PROCESSING: Valid speckit command
+--- End Hook Processing Status ---
 """
 
         if json2:
